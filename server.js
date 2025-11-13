@@ -23,20 +23,24 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: '20mb' }));
 
-// lowdb setup
+// ---------------- lowdb setup (with default data) ----------------
 const dbFile = path.join(process.cwd(), 'db.json');
 const adapter = new JSONFile(dbFile);
-const db = new Low(adapter);
+
+// default data directly pass करें
+const db = new Low(adapter, { users: [], videos: [] });
 
 await db.read();
-db.data = db.data || { users: [], videos: [] };
+// अब db.data हमेशा default data से initialized रहेगा
 await db.write();
 
+// ---------------- JWT & Admin config ----------------
 const SECRET = process.env.JWT_SECRET || 'dev_jwt_secret_change';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'kumayan7488@gmail.com';
 const ADMIN_PASS = process.env.ADMIN_PASS || 'Aryankr7488';
 const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || 'admin_jwt_secret_change';
 
+// ---------------- Upload folder setup ----------------
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
 
@@ -47,12 +51,14 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// ---------------- S3 client setup ----------------
 let s3client = null;
 if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY && process.env.S3_BUCKET) {
   s3client = new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
   console.log('S3 configured for bucket', process.env.S3_BUCKET);
 }
 
+// ---------------- Helper functions ----------------
 function genToken(user) {
   return jwt.sign({ id: user.id, email: user.email }, SECRET, { expiresIn: '7d' });
 }
@@ -89,7 +95,7 @@ function adminAuth(req, res, next) {
   }
 }
 
-// Auth routes
+// ---------------- Auth routes ----------------
 app.post('/auth/signup', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Missing email or password' });
@@ -114,7 +120,6 @@ app.post('/auth/login', async (req, res) => {
   res.json({ user: { id: user.id, email: user.email }, token: genToken(user) });
 });
 
-// Admin login
 app.post('/admin/login', async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Missing' });
@@ -126,7 +131,7 @@ app.post('/admin/login', async (req, res) => {
   }
 });
 
-// Presign and local upload endpoints
+// ---------------- Upload endpoints ----------------
 app.post('/upload-url', async (req, res) => {
   const { filename, contentType } = req.body || {};
   if (!filename || !contentType) return res.status(400).json({ error: 'Missing' });
@@ -149,7 +154,7 @@ app.post('/upload-local', upload.single('video'), async (req, res) => {
   res.json({ url, filename: req.file.filename });
 });
 
-// Create video metadata
+// ---------------- Videos routes ----------------
 app.post('/videos', authMiddleware, async (req, res) => {
   const { title, description, videoUrl, thumbnailUrl, s3_key, duration } = req.body;
   if (!videoUrl) return res.status(400).json({ error: 'videoUrl required' });
@@ -238,6 +243,7 @@ app.patch('/videos/:id', adminAuth, async (req, res) => {
   res.json({ video: v });
 });
 
+// ---------------- Users routes ----------------
 app.get('/users', adminAuth, async (req, res) => {
   await db.read();
   const users = (db.data.users || []).map((u) => {
