@@ -5,7 +5,8 @@ import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import multer from 'multer';
-import { Low, JSONFile } from 'lowdb';
+import { Low } from 'lowdb';
+import { JSONFile } from 'lowdb/node';
 import { nanoid } from 'nanoid';
 import fs from 'fs';
 import path from 'path';
@@ -26,6 +27,7 @@ app.use(bodyParser.json({ limit: '20mb' }));
 const dbFile = path.join(process.cwd(), 'db.json');
 const adapter = new JSONFile(dbFile);
 const db = new Low(adapter);
+
 await db.read();
 db.data = db.data || { users: [], videos: [] };
 await db.write();
@@ -40,7 +42,8 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => cb(null, Date.now() + '_' + file.originalname.replace(/\s+/g,'_'))
+  filename: (req, file, cb) =>
+    cb(null, Date.now() + '_' + file.originalname.replace(/\s+/g, '_')),
 });
 const upload = multer({ storage });
 
@@ -64,7 +67,7 @@ async function authMiddleware(req, res, next) {
   try {
     const payload = jwt.verify(token, SECRET);
     await db.read();
-    const user = db.data.users.find(u => u.id === payload.id);
+    const user = db.data.users.find((u) => u.id === payload.id);
     if (!user) return res.status(401).json({ error: 'Invalid token' });
     req.user = user;
     next();
@@ -91,7 +94,7 @@ app.post('/auth/signup', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Missing email or password' });
   await db.read();
-  if (db.data.users.find(u => u.email === email)) return res.status(400).json({ error: 'Email exists' });
+  if (db.data.users.find((u) => u.email === email)) return res.status(400).json({ error: 'Email exists' });
   const hash = await bcrypt.hash(password, 10);
   const user = { id: nanoid(), email, password_hash: hash, created_at: new Date().toISOString() };
   db.data.users.push(user);
@@ -104,7 +107,7 @@ app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Missing' });
   await db.read();
-  const user = db.data.users.find(u => u.email === email);
+  const user = db.data.users.find((u) => u.email === email);
   if (!user) return res.status(400).json({ error: 'User not found' });
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) return res.status(400).json({ error: 'Invalid password' });
@@ -123,12 +126,12 @@ app.post('/admin/login', async (req, res) => {
   }
 });
 
-// Presign and local upload endpoints (omitted comments for brevity)
+// Presign and local upload endpoints
 app.post('/upload-url', async (req, res) => {
   const { filename, contentType } = req.body || {};
   if (!filename || !contentType) return res.status(400).json({ error: 'Missing' });
   if (!s3client) return res.status(400).json({ error: 'S3 not configured' });
-  const key = 'uploads/' + Date.now() + '_' + filename.replace(/\s+/g,'_');
+  const key = 'uploads/' + Date.now() + '_' + filename.replace(/\s+/g, '_');
   const cmd = new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key, ContentType: contentType });
   try {
     const url = await getSignedUrl(s3client, cmd, { expiresIn: 3600 });
@@ -165,7 +168,7 @@ app.post('/videos', authMiddleware, async (req, res) => {
     comments: [],
     views: 0,
     hidden: false,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
   };
   db.data.videos.unshift(video);
   await db.write();
@@ -179,7 +182,7 @@ app.get('/videos', async (req, res) => {
 
 app.post('/videos/:id/view', async (req, res) => {
   await db.read();
-  const v = db.data.videos.find(x => x.id === req.params.id);
+  const v = db.data.videos.find((x) => x.id === req.params.id);
   if (!v) return res.status(404).json({ error: 'Not found' });
   v.views = (v.views || 0) + 1;
   await db.write();
@@ -188,7 +191,7 @@ app.post('/videos/:id/view', async (req, res) => {
 
 app.post('/videos/:id/like', authMiddleware, async (req, res) => {
   await db.read();
-  const v = db.data.videos.find(x => x.id === req.params.id);
+  const v = db.data.videos.find((x) => x.id === req.params.id);
   if (!v) return res.status(404).json({ error: 'Not found' });
   const idx = v.likes.indexOf(req.user.id);
   if (idx === -1) v.likes.push(req.user.id);
@@ -201,7 +204,7 @@ app.post('/videos/:id/comments', authMiddleware, async (req, res) => {
   const text = req.body.text;
   if (!text) return res.status(400).json({ error: 'No text' });
   await db.read();
-  const v = db.data.videos.find(x => x.id === req.params.id);
+  const v = db.data.videos.find((x) => x.id === req.params.id);
   if (!v) return res.status(404).json({ error: 'Not found' });
   const comment = { id: nanoid(), user_id: req.user.id, userEmail: req.user.email, text, created_at: new Date().toISOString() };
   v.comments.push(comment);
@@ -211,7 +214,7 @@ app.post('/videos/:id/comments', authMiddleware, async (req, res) => {
 
 app.delete('/videos/:id', adminAuth, async (req, res) => {
   await db.read();
-  const idx = (db.data.videos || []).findIndex(v => v.id === req.params.id);
+  const idx = (db.data.videos || []).findIndex((v) => v.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Video not found' });
   const [video] = db.data.videos.splice(idx, 1);
   await db.write();
@@ -228,7 +231,7 @@ app.delete('/videos/:id', adminAuth, async (req, res) => {
 app.patch('/videos/:id', adminAuth, async (req, res) => {
   const { hidden } = req.body;
   await db.read();
-  const v = db.data.videos.find(x => x.id === req.params.id);
+  const v = db.data.videos.find((x) => x.id === req.params.id);
   if (!v) return res.status(404).json({ error: 'Not found' });
   v.hidden = !!hidden;
   await db.write();
@@ -237,8 +240,8 @@ app.patch('/videos/:id', adminAuth, async (req, res) => {
 
 app.get('/users', adminAuth, async (req, res) => {
   await db.read();
-  const users = (db.data.users || []).map(u => {
-    const uploadCount = (db.data.videos || []).filter(v => v.user_id === u.id).length;
+  const users = (db.data.users || []).map((u) => {
+    const uploadCount = (db.data.videos || []).filter((v) => v.user_id === u.id).length;
     return { id: u.id, email: u.email, created_at: u.created_at, uploadCount };
   });
   res.json(users);
@@ -246,7 +249,7 @@ app.get('/users', adminAuth, async (req, res) => {
 
 app.delete('/users/:id', adminAuth, async (req, res) => {
   await db.read();
-  const idx = (db.data.users || []).findIndex(u => u.id === req.params.id);
+  const idx = (db.data.users || []).findIndex((u) => u.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'User not found' });
   db.data.users.splice(idx, 1);
   await db.write();
